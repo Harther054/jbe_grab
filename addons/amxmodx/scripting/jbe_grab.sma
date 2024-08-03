@@ -18,7 +18,6 @@
 //Для удобного чтения координат.
 enum _:XYZ {Float: X, Float: Y, Float: Z};
 
-//Отвечает за вкл/вкл граба
 enum _: eDataPlayers {GRABBER, GRABBED, GRAB_LEN};
 
 enum _: eCvars     
@@ -30,8 +29,14 @@ enum _: eCvars
     CVAR_GRAB_MAIN_ADMIN[6],             //флаг доступа Гл.Админа(Перехват + Игнор иммунитета)
 }
 
+enum _: eDataGrab
+{
+    bool: GRAB_IMMUNITY                  //переключатель иммунитета(вкл/выкл)
+}
+
 new g_Cvars[eCvars];
 new g_DataPlayers[MAX_PLAYERS + 1][eDataPlayers];
+new g_DataGrab[MAX_PLAYERS + 1][eDataGrab];
 
 new g_iBitFlagAccess, g_iBitFlagGrabMenu, g_iBitFlagImmunity, g_iBitFlagEditMenu, g_iBitFlagMainAdmin;
 
@@ -48,6 +53,8 @@ public plugin_init()
     register_clcmd("-grab", "OffGrab");
     register_clcmd("drop", "GrabThrow");
 
+    register_clcmd("grab_immunity", "Clcmd_MenuImmunity");
+
     RegisterHookChain(RG_CBasePlayer_PreThink, "Hook_PreThink", false);
 
     g_iBitFlagAccess = read_flags(g_Cvars[CVAR_GRAB_ACCESS]);
@@ -63,7 +70,6 @@ public OnGrab(id)
         g_DataPlayers[id][GRABBED] = -1;
     else 
         client_print_color(id, print_team_red, "%s %s", GetLang("GRAB_CHAT_PREFIX"), GetLang("GRAB_CHAT_NO_ACCESS"));
-
     return PLUGIN_HANDLED;
 }
 
@@ -97,7 +103,14 @@ public Hook_PreThink(id)
             //проверка схвачен игрок или нет.
             if(is_grabbed(id, iTarget))
             {
-                client_print_color(id, print_team_red, "%s %L", LS, "GRAB_CHAT_PREFIX", LS, "GRAB_CHAT_IS_GRABBED", iTarget, g_DataPlayers[iTarget][GRABBER]);
+                client_print_color(id, print_team_red, "%L %L", LS, "GRAB_CHAT_PREFIX", LS, "GRAB_CHAT_IS_GRABBED", iTarget, g_DataPlayers[iTarget][GRABBER]);
+                unset_grabbed(id);
+                return HC_SUPERCEDE;
+            }
+            if(g_DataGrab[iTarget][GRAB_IMMUNITY] && !IsAccess(id, g_iBitFlagMainAdmin))
+            {
+                client_print_color(id, print_team_red, "%L %L", LS, "GRAB_CHAT_PREFIX", LS, "GRAB_CHAT_ID_IMMUNITY", iTarget);
+                client_print_color(iTarget, print_team_red, "%L %L", LS, "GRAB_CHAT_PREFIX", LS, "GRAB_CHAT_TARGET_IMMUNITY", id);
                 unset_grabbed(id);
                 return HC_SUPERCEDE;
             }
@@ -219,6 +232,44 @@ public GrabThrow(id)
     return PLUGIN_CONTINUE;
 }
 
+// Меню иммунитета 
+public Clcmd_MenuImmunity(id)
+{
+    if(!IsAccess(id, g_iBitFlagImmunity))
+    {
+        client_print_color(id, print_team_red, "%L %L", LS, "GRAB_CHAT_PREFIX", LS, "GRAB_CHAT_NO_FLAG_IMMUNITY")
+        return PLUGIN_HANDLED;
+    }
+
+    new iImmunityMenu = menu_create(GetLang("GRAB_MENU_IMMUNITY"), "Handler_MenuImmunity");
+
+    menu_setprop(iImmunityMenu, MPROP_EXITNAME, GetLang("GRAB_MENU_ITEM_EXIT"));
+
+    menu_additem(iImmunityMenu, fmt("%L %L", LS, "GRAB_MENU_ITEM_IMMUNITY",  LS, !g_DataGrab[id][GRAB_IMMUNITY] ? "GRAB_MENU_TOGGLE_OFF" : "GRAB_MENU_TOGGLE_ON"));
+
+    menu_display(id, iImmunityMenu);
+    return PLUGIN_HANDLED;
+}
+
+public Handler_MenuImmunity(const id, const iImmunityMenu, const iImmunityItemMenu)
+{
+    if(iImmunityItemMenu == MENU_EXIT)
+    {
+        menu_destroy(iImmunityMenu);
+        return PLUGIN_HANDLED;
+    }
+
+    menu_destroy(iImmunityMenu);
+
+    switch(iImmunityItemMenu)
+    {
+        case 0: g_DataGrab[id][GRAB_IMMUNITY] ^= true;    
+    }
+
+    Clcmd_MenuImmunity(id);
+    return PLUGIN_HANDLED;
+}
+
 // Автоматически создаёт cfg файл.
 CreateCvars()
 {
@@ -256,7 +307,7 @@ CreateCvars()
 
     bind_pcvar_string(
         create_cvar(
-            .name = "jbe_grab_edit_menu_access",
+            .name = "jbe_grab_edit_main_admin",
             .string = "l",
             .description = GetLang("GRAB_CVAR_MAIN_ADMIN_ACCESS")
         ), g_Cvars[CVAR_GRAB_MAIN_ADMIN], charsmax(g_Cvars[CVAR_GRAB_MAIN_ADMIN])
@@ -278,8 +329,16 @@ CreateLang()
         write_file(szData,
         "[ru]^n\
         GRAB_CHAT_PREFIX = ^^3[^^4JBE GRAB^^3]^n\
-        GRAB_CHAT_IS_GRABBED = ^^1 Игрок ^^4%n ^^1уже в руках ^^3%n^n\
-        GRAB_CHAT_NO_ACCESS = ^^1 У вас нет ^^3доступа ^^1для использования ^^4граба^n\
+        GRAB_CHAT_IS_GRABBED = ^^1Игрок ^^4%n ^^1уже в руках ^^3%n^n\
+        GRAB_CHAT_NO_ACCESS = ^^1У вас нет ^^3доступа ^^1для использования ^^4граба^n\
+        GRAB_CHAT_NO_FLAG_IMMUNITY = ^^1У вас нет ^^3доступа ^^1 к меню ^4иммунитета^n\
+        GRAB_CHAT_TARGET_IMMUNITY = ^^1Администратор ^^4%n ^1пытается взять вас ^3грабом^n\
+        GRAB_CHAT_ID_IMMUNITY = ^^1У игрока ^4%n ^1включён ^3иммунитет^n\
+        GRAB_MENU_IMMUNITY = \wГраб меню \d| \yИммунитет меню^n\
+        GRAB_MENU_ITEM_IMMUNITY = Иммунитет:^n\
+        GRAB_MENU_TOGGLE_ON = \yВкл^n\
+        GRAB_MENU_TOGGLE_OFF = \rВыкл^n\
+        GRAB_MENU_ITEM_EXIT = Выход^n\
         GRAB_CVAR_ACCESS = Флаг доступа к грабу^n\
         GRAB_CVAR_MENU_ACCESS = Флаг доступа к меню граба^n\
         GRAB_CVAR_IMMUNITY_ACCESS = Флаг доступа к иммунитету от граба^n\
@@ -289,6 +348,14 @@ CreateLang()
         GRAB_CHAT_PREFIX = ^^3[^^4JBE GRAB^^3]^n\
         GRAB_CHAT_IS_GRABBED = ^^1 Player ^^4%n ^^1is already in the hands of ^^3%n^n\
         GRAB_NO_ACCESS = ^^1 You do ^^3not have access ^^1to use ^^4grab^n\
+        GRAB_CHAT_NO_FLAG_IMMUNITY = ^^1You do not have ^^3access ^^1to the ^4immunity menu^n\
+        GRAB_CHAT_TARGET_IMMUNITY = ^^1Admin ^^4%n ^1is trying to grab you ^3by force^n\
+        GRAB_CHAT_ID_IMMUNITY = ^^Player ^4%n has ^3immunity ^1enabled^n\
+        GRAB_MENU_IMMUNITY = \wGrab menu \d| \yImmunity menu^n\
+        GRAB_MENU_ITEM_IMMUNITY = Immunity:^n\
+        GRAB_MENU_TOGGLE_ON = \yOn^n\
+        GRAB_MENU_TOGGLE_OFF = \rOff^n\
+        GRAB_MENU_ITEM_EXIT = Exit^n\
         GRAB_CVAR_ACCESS = Access flag for grab^n\
         GRAB_CVAR_MENU_ACCESS = Access flag for the grab menu^n\
         GRAB_CVAR_IMMUNITY_ACCESS = Access flag for immunity from grab^n\
