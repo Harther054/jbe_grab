@@ -64,6 +64,14 @@ public plugin_init()
     g_iBitFlagMainAdmin = read_flags(g_Cvars[CVAR_GRAB_MAIN_ADMIN]);
 }
 
+public client_disconnected(id)
+{
+    new iTarget = g_DataPlayers[id][GRABBED];
+
+    if(0 < iTarget <= MaxClients)
+        unset_grabbed(id);
+}
+
 public OnGrab(id)
 {
     if(IsAccess(id, g_iBitFlagAccess))
